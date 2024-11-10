@@ -14,7 +14,7 @@ class Messages(deque[Message]):
     #     super().__init__(*args, **kwargs)
 
     def get_unsent(self) -> Self:
-        return Messages(deque(message for message in self if message.status is False))
+        return Messages(message for message in self if message.status is False)
 
     def get_text(self, width, height):
         messages = [message for message in self if message.status is False]
