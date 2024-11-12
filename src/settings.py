@@ -69,7 +69,7 @@ class Settings:
                 + 1
         )
         max_col_field_symbols = (
-                self.field["size_columns"] * max_col_player_symbols
+                self.field['size_columns'] * max_col_player_symbols
                 + self.field["size_columns"]
                 + 1
         )
@@ -118,7 +118,7 @@ class Settings:
             settings=self,
             messages=Messages([Message('Hello!', False)], maxlen=self.messages['max_count']),
             status=True,
-            active_cell=None,
+            active_cell=None
         )
         if active_cell:
             game.set_active_cell()

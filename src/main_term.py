@@ -5,8 +5,6 @@ from settings import Settings
 from game import Game
 from field import FieldCoordinates
 
-game = Settings().create_game(active_cell=True)
-
 stdscr = curses.initscr()
 curses.start_color()
 curses.noecho()
@@ -31,7 +29,7 @@ directions = {
 }
 
 
-async def main(current_game: Game) -> None:
+async def redraw_screen(current_game: Game):
     while True:
         # виводимо гру на екран
         stdscr.clear()
@@ -45,21 +43,20 @@ async def main(current_game: Game) -> None:
         # виводимо гру на екран
         for row in range(max_row):
             for col in range(max_col):
-                symbol = current_game.screen.get((row, col), " ")
+                symbol = current_game.screen.get((row, col), ' ')
                 stdscr.addstr(row, col, symbol)
         stdscr.refresh()
-        # перевірити чи гра закінчилась
-        current_game = current_game.is_game_over()
-        if not current_game.status:
-            break
-        # обробка клавіш
+        await asyncio.sleep(0.01)
+
+
+async def get_input(current_game: Game):
+    while True:
+
         try:
             key = stdscr.getch()
         except curses.error:
             continue
 
-        # дивись https://docs.python.org/3/library/curses.html#curses.KEY_ENTER,
-        # https://stackoverflow.com/questions/32252733/interpreting-enter-keypress-in-stdscr-curses-module-in-python
         if key == curses.KEY_ENTER or key == 10 or key == 13:
             #  встановити поточного гравця на позицію (тут же змінюється черга і виводяться відповідні повідомлення)
             current_game = current_game.add_player_to_field_position(current_game.active_cell)
@@ -86,13 +83,28 @@ async def main(current_game: Game) -> None:
 
         await asyncio.sleep(0.01)
 
+
+async def main() -> None:
+    game = Settings().create_game(active_cell=True)
+    blink = asyncio.create_task(game.blink_active_cell_screen())
+    task1 = asyncio.create_task(redraw_screen(game))
+    task2 = asyncio.create_task(get_input(game))
+
+    while game.is_game_running():
+        await asyncio.sleep(0.01)
+
+    task2.cancel()
+    blink.cancel()
+    await asyncio.sleep(3)
+    task1.cancel()
+
     # треба щось надрукувати - гра закінчилась
-    finish_message = f'  Гра закінчилась! Переможець: {current_game.players[0]}.  Для виходу натисніть ESC.  '
+    finish_message = f'  Гра закінчилась! Переможець: {game.players[0]}.  Для виходу натисніть ESC.  '
     while not stdscr.getch() == 27:
         stdscr.clear()
         max_row, max_col = stdscr.getmaxyx()
         stdscr.addstr(max_row // 2, (max_col - len(finish_message)) // 2, finish_message)
-        current_game.show_for_terminal()
+        game.show_for_terminal()
         stdscr.refresh()
         time.sleep(0.1)
 
@@ -104,4 +116,4 @@ async def main(current_game: Game) -> None:
 
 if __name__ == "__main__":
     with asyncio.Runner() as runner:
-        runner.run(main(game))
+        runner.run(main())

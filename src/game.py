@@ -1,5 +1,4 @@
-import asyncio
-from collections import ChainMap
+from screen import Screen
 from typing import NamedTuple, Self
 from field import Field, FieldCoordinates
 from player import Players, Player
@@ -10,25 +9,24 @@ ScreenSymbol = str
 
 
 class Game:
-    def __init__(self, field: Field, players: Players, settings, messages: Messages, status, active_cell):
+    def __init__(self, field: Field, players: Players, settings, messages: Messages, status,
+                 active_cell: FieldCoordinates | None):
         self.field = field
         self.players = players
         self.settings = settings
         self.messages = messages
         self.status = status
         self.active_cell = active_cell
-        self.screen = ChainMap({}, {}, {}, {})  # PlayersScreen, FieldScreen, MessagesScreen
-        self._blink = None
-        self._active_cell_screen = dict()
+        self.screen = Screen(settings)
 
     def show_game(self) -> str:
         """На основі повернутих з get_messages_screen, get_field_screen і get_player_screen і сформованого GameScreen
 
         створює рядок, що відображає весь екран гри
         """
-        self.get_messages_screen()
-        self.get_field_screen()
-        self.get_player_screen()
+        self.screen.get_messages_screen(self.messages)
+        self.screen.get_field_screen()
+        self.screen.get_player_screen(self.field)
         # self.get_active_cell_screen()
         result = ''
         for row in range(self.settings.screen['size_rows']):
@@ -38,266 +36,13 @@ class Game:
         return result
 
     def show_for_terminal(self) -> None:
-        self.get_messages_screen()
-        self.get_field_screen()
-        self.get_player_screen()
-        self.count_active_cell()
-        if self._blink is None:
-            self._blink = asyncio.create_task(self.blink_active_cell_screen())
-            # await self._blink
-
-    def get_messages_screen(self):
-        """Для повідомлень які ще не відображувались (Message.status == False) створює словник,
-
-        що описує відображення повідомлення на екрані - координати і символи
-        всі координати позиціонуються в прямокутній області між upper_left_corner і lower_right_corner
-        """
-
-        upper_left_corner = ScreenCoordinates(
-            self.settings.messages['left_up_row_position'],
-            self.settings.messages['left_up_column_position'],
-        )
-
-        lower_right_corner = ScreenCoordinates(
-            self.settings.messages['right_down_row_position'],
-            self.settings.messages['right_down_column_position'],
-        )
-
-        height = lower_right_corner.row - upper_left_corner.row
-        width = lower_right_corner.column - upper_left_corner.column
-        messages = self.messages.get_unsent()
-        # залишити лише текст повідомлень
-        prepared_messages = messages.get_text(height, width)
-        lst_prepared_messages = list(prepared_messages)
-        screen = {}
-        for row in range(upper_left_corner.row, lower_right_corner.row):
-            for column in range(upper_left_corner.column, lower_right_corner.column):
-                if lst_prepared_messages:
-                    screen[ScreenCoordinates(row, column)] = ScreenSymbol(lst_prepared_messages.pop(0))
-                else:
-                    self.screen.maps[3].update(screen)
-
-    def get_field_screen(self):
-
-        upper_left_corner = ScreenCoordinates(
-            self.settings.field['left_up_row_position'],
-            self.settings.field['left_up_column_position'],
-        )
-
-        # визначаємо розміри поля в символах (рядки, стовпці, роздільники, розміри зображень гравців)
-        result = {}
-        # обрамлення поля
-        max_row_player_symbols = self.settings.players['max_row_symbols']  # розмір ячейки по вертикалі
-        max_col_player_symbols = self.settings.players['max_col_symbols']  # розмір ячейки по горизонталі
-        # sumbols: "┏", "━", "┳", "┓", "┃", "┣", "┫", "┻", "┛", "┗", "╋"
-        # точки перетину ліній: в рядках (max_row_player_symbols + 1) * range(settings["field"]["max_rows"] + 1))
-        # в стовпцях (max_col_player_symbols + 1) * range(settings["field"]["max_columns"] + 1))
-        # тобто для зображення гравця 1x1 і поля 3x3: (0, 2, 4, 6), (0, 2, 4, 6)
-        # тобто для зображення гравця 2x2 і поля 3x3: (0, 3, 6, 9), (0, 3, 6, 9)
-        # послідовність координат точок перетину для рядків:
-        coordinates_of_intersections_rows = [
-            upper_left_corner.row + coordinate * (max_row_player_symbols + 1)
-            for coordinate in range(self.settings.field['size_rows'] + 1)
-        ]
-        # послідовність координат точок перетину для стовпців:
-        coordinates_of_intersections_columns = [
-            upper_left_corner.column + coordinate * (max_col_player_symbols + 1)
-            for coordinate in range(self.settings.field['size_columns'] + 1)
-        ]
-        for row in range(
-                upper_left_corner.row,
-                self.settings.field['max_row_symbols'] + upper_left_corner.row,
-        ):
-            for col in range(
-                    upper_left_corner.column,
-                    self.settings.field['max_col_symbols'] + upper_left_corner.column,
-            ):
-                pass
-                if (
-                        row == coordinates_of_intersections_rows[0]
-                        and col == coordinates_of_intersections_columns[0]
-                ):
-                    symbol = "┏"
-                elif (
-                        row == coordinates_of_intersections_rows[0]
-                        and col == coordinates_of_intersections_columns[-1]
-                ):
-                    symbol = "┓"
-                elif (
-                        row == coordinates_of_intersections_rows[-1]
-                        and col == coordinates_of_intersections_columns[0]
-                ):
-                    symbol = "┗"
-                elif (
-                        row == coordinates_of_intersections_rows[-1]
-                        and col == coordinates_of_intersections_columns[-1]
-                ):
-                    symbol = "┛"
-                elif (
-                        row in coordinates_of_intersections_rows
-                        and col not in coordinates_of_intersections_columns
-                ):
-                    symbol = "━"
-                elif (
-                        col in coordinates_of_intersections_columns
-                        and row not in coordinates_of_intersections_rows
-                ):
-                    symbol = "┃"
-                elif (
-                        row == coordinates_of_intersections_rows[0]
-                        and col in coordinates_of_intersections_columns[1:-1]
-                ):
-                    symbol = "┳"
-                elif (
-                        row == coordinates_of_intersections_rows[-1]
-                        and col in coordinates_of_intersections_columns[1:-1]
-                ):
-                    symbol = "┻"
-                elif (
-                        col == coordinates_of_intersections_columns[0]
-                        and row in coordinates_of_intersections_rows[1:-1]
-                ):
-                    symbol = "┣"
-                elif (
-                        col == coordinates_of_intersections_columns[-1]
-                        and row in coordinates_of_intersections_rows[1:-1]
-                ):
-                    symbol = "┫"
-                elif (
-                        row in coordinates_of_intersections_rows[1:-1]
-                        and col in coordinates_of_intersections_columns[1:-1]
-                ):
-                    symbol = "╋"
-                else:
-                    symbol = self.settings.field['empty']
-                result[ScreenCoordinates(row, col)] = symbol
-        self.screen.maps[2].update(result)
-
-    def get_player_screen(self):
-        """Створює словник, що описує відображення гравців на екрані - координати і символи
-
-        всі координати позиціонуються відносно upper_left_corner (і далі відповідно розмірів зображень гравця)
-        """
-        field_upper_left_corner = ScreenCoordinates(
-            self.settings.field['left_up_row_position'],
-            self.settings.field['left_up_column_position'],
-        )
-        result = {}
-        # ітеруватись по поточному полю, якщо на певних позиціях
-        # є гравець - візуалізувати відповідно налаштувань
-        for field_row in range(self.settings.field['size_rows']):
-            for field_col in range(self.settings.field['size_columns']):
-                if player := self.field[ScreenCoordinates(field_row, field_col)]:
-                    player_rows = self.settings.players[player]['image'].split('\n')
-                    for player_row_number, player_row in enumerate(player_rows):
-                        for player_symbol_col_number, player_symbol in enumerate(
-                                player_row
-                        ):
-                            row = (
-                                    field_row * self.settings.players['max_row_symbols']
-                                    + (field_row + 1)
-                                    + field_upper_left_corner.row
-                                    + player_row_number
-                            )
-                            col = (
-                                    field_col * self.settings.players['max_col_symbols']
-                                    + (field_col + 1)
-                                    + field_upper_left_corner.column
-                                    + player_symbol_col_number
-                            )
-                            result[ScreenCoordinates(row, col)] = player_symbol
-        self.screen.maps[1].update(result)
-
-    def count_active_cell(self):
-        """Якщо активна клітина не None - додає її у відповідний словник у гру"""
-        active_cell_screen = dict()
-        if self.active_cell:
-            # розмір осередку визначено в game.settings["player"]["max_row_player_symbols"] і max_col_player_symbols
-            # лівий верхній кур поля - в атрибуті game.settings["field"]["left_up_row_position"] і
-            # left_up_column_position
-            left_up_corner_coordinates = ScreenCoordinates(
-                self.settings.field['left_up_row_position']
-                + self.active_cell.row * (self.settings.players['max_row_symbols'] + 1),
-                self.settings.field['left_up_column_position']
-                + self.active_cell.column
-                * (self.settings.players['max_col_symbols'] + 1)
-            )
-            right_down_corner_coordinates = ScreenCoordinates(
-                left_up_corner_coordinates.row
-                + self.settings.players['max_row_symbols']
-                + 1,
-                left_up_corner_coordinates.column
-                + self.settings.players['max_col_symbols']
-                + 1
-            )
-            active_cell_screen[left_up_corner_coordinates] = self.settings.active_cell['left_up_corner_symbol']
-            active_cell_screen[right_down_corner_coordinates] = self.settings.active_cell['right_down_corner_symbol']
-            # правий верхній кут
-            active_cell_screen[
-                ScreenCoordinates(
-                    left_up_corner_coordinates.row,
-                    right_down_corner_coordinates.column
-                )
-            ] = self.settings.active_cell['right_up_corner_symbol']
-            # лівий нижній кут
-            active_cell_screen[
-                ScreenCoordinates(
-                    right_down_corner_coordinates.row,
-                    left_up_corner_coordinates.column
-                )] = self.settings.active_cell['left_down_corner_symbol']
-            #  верхня горизонтальна лінія
-            for column in range(
-                    left_up_corner_coordinates.column + 1,
-                    right_down_corner_coordinates.column
-            ):
-                active_cell_screen[
-                    ScreenCoordinates(
-                        left_up_corner_coordinates.row,
-                        column
-                    )
-                ] = self.settings.active_cell['horizontal_symbol']
-            #  нижня горизонтальна лінія
-            for column in range(
-                    left_up_corner_coordinates.column + 1,
-                    right_down_corner_coordinates.column,
-            ):
-                active_cell_screen[
-                    ScreenCoordinates(
-                        right_down_corner_coordinates.row,
-                        column
-                    )
-                ] = self.settings.active_cell['horizontal_symbol']
-            #  ліва вертикальна лінія
-            for row in range(
-                    left_up_corner_coordinates.row + 1,
-                    right_down_corner_coordinates.row
-            ):
-                active_cell_screen[
-                    ScreenCoordinates(
-                        row,
-                        left_up_corner_coordinates.column
-                    )
-                ] = self.settings.active_cell['vertical_symbol']
-            # права вертикальна лінія
-            for row in range(
-                    left_up_corner_coordinates.row + 1,
-                    right_down_corner_coordinates.row
-            ):
-                active_cell_screen[
-                    ScreenCoordinates(
-                        row,
-                        right_down_corner_coordinates.column
-                    )
-                ] = self.settings.active_cell['vertical_symbol']
-
-        self._active_cell_screen = active_cell_screen
+        self.screen.get_messages_screen(self.messages)
+        self.screen.get_field_screen()
+        self.screen.get_player_screen(self.field)
+        self.screen.count_active_cell(self.active_cell)
 
     async def blink_active_cell_screen(self):
-        while True:
-            self.screen.maps[0] = self._active_cell_screen
-            await asyncio.sleep(0.05)
-            self.screen.maps[0].clear()
-            await asyncio.sleep(0.05)
+        await self.screen.blink_active_cell_screen()
 
     @staticmethod
     def is_empty_cells(current_field: Field) -> bool:
@@ -330,7 +75,7 @@ class Game:
             if counter == n:
                 return previous_figure
 
-    def is_game_over(self) -> Self:
+    def is_game_running(self) -> bool:
         """Повертає екземпляр Game, в якому:
          - в атрибуті status - True продовжується гра, False - гра закінчилась
          - в атрибуті messages - список повідомлень про переможця або нічию.
@@ -349,7 +94,7 @@ class Game:
             self.add_message_to_game('Всі клітинки зайняті. Нічия!')
             self.status = False
 
-            return self
+            return self.status
         # перевірити виграшні комбінації в рядках (відкидаємо рядки менші за довжину виграшної)
         for row in range(self.settings.field['size_rows']):
             cells = [
@@ -361,7 +106,7 @@ class Game:
                 self.add_message_to_game(f'Переміг {winner}!')
                 self.status = False
 
-                return self
+                return self.status
         # перевірити виграшні комбінації в колонках (відкидаємо колонки менші за довжину виграшної)
         for column in range(self.settings.field['size_columns']):
             cells = [
@@ -373,7 +118,7 @@ class Game:
                 self.add_message_to_game(f'Переміг {winner}!')
                 self.status = False
 
-                return self
+                return self.status
         # перевірити виграшні комбінації в правих діагоналях (перша половина)
         for row in range(
                 0,
@@ -389,7 +134,7 @@ class Game:
                 self.add_message_to_game(f'Переміг {winner}!')
                 self.status = False
 
-                return self
+                return self.status
         # 'друга частина' правих діагоналей
         for column in range(
                 1,
@@ -405,7 +150,7 @@ class Game:
                 self.add_message_to_game(f'Переміг {winner}!')
                 self.status = False
 
-                return self
+                return self.status
 
         # перевірити виграшні комбінації в лівих діагоналях (перша половина)
         for column in range(
@@ -421,7 +166,7 @@ class Game:
                 self.add_message_to_game(f'Переміг {winner}!')
                 self.status = False
 
-                return self
+                return self.status
 
         # 'друга частина' лівих діагоналей
         for row in range(
@@ -438,9 +183,9 @@ class Game:
                 self.add_message_to_game(f'Переміг {winner}!')
                 self.status = False
 
-                return self
+                return self.status
 
-        return self
+        return self.status
 
     def input_next_position(self) -> FieldCoordinates | str:
         """очікує від гравця введення позиції на полі гри
@@ -516,8 +261,8 @@ class Game:
         else:
             #  перевіряємо - чи запропонована для встановлення позиція - в межах поля?
             if (
-                    0 <= position.row < self.settings.field["size_rows"]
-                    and 0 <= position.column < self.settings.field["size_columns"]
+                    0 <= position.row < self.settings.field['size_rows']
+                    and 0 <= position.column < self.settings.field['size_columns']
             ):
                 #  якщо так - встановлюємо активну клітинку на позицію position
                 active_cell = position
