@@ -1,23 +1,27 @@
+import asyncio
+import curses
+import time
 from screen import Screen
 from typing import NamedTuple, Self
 from field import Field, FieldCoordinates
-from player import Players, Player
+from player import Players
 from message import Message, Messages
+from utils import stdscr, directions
 
 ScreenCoordinates = NamedTuple('ScreenCoordinates', [('row', int), ('column', int)])
 ScreenSymbol = str
 
 
 class Game:
-    def __init__(self, field: Field, players: Players, settings, messages: Messages, status,
+    def __init__(self, field: Field, players: Players, settings, messages: Messages,
                  active_cell: FieldCoordinates | None):
         self.field = field
         self.players = players
         self.settings = settings
         self.messages = messages
-        self.status = status
         self.active_cell = active_cell
         self.screen = Screen(settings)
+        self.stdscr = curses.initscr()
 
     def show_game(self) -> str:
         """На основі повернутих з get_messages_screen, get_field_screen і get_player_screen і сформованого GameScreen
@@ -42,150 +46,19 @@ class Game:
         self.screen.count_active_cell(self.active_cell)
 
     async def blink_active_cell_screen(self):
-        await self.screen.blink_active_cell_screen()
+        while self.field.status:
+            await self.screen.blink_active_cell_screen()
 
-    @staticmethod
-    def is_empty_cells(current_field: Field) -> bool:
-        # Повертає True якщо в полі є пусті клітинки, інакше False.
-        return any(value is None for value in current_field.values())
+    async def is_game_running(self):
+        while self.field.is_game_running():
+            await asyncio.sleep(0.01)
 
-    @staticmethod
-    def is_n_symbols_continuously(cells: list[Player | None], n: int) -> None | Player:
-        # Повертає символ, якщо в списку є n символів підряд, інакше None.
-
-        # + 1 лише якщо попередній символ дорівнює поточному (counter, figure, previous_figure)
-        # якщо попередній не дорівнює поточному, то знову починаємо з 1 (counter, figure, previous_figure)
-        # якщо символа немає, то знову починаємо з 0 ()
-        # на кожному циклі перевіряємо, чи кількість символів дорівнює n (тоді стоп і повертаємо символ
-        # що створив переможну комбінацію)
-        counter = 0
-        previous_figure = None
-        for figure in cells:
-            if figure is None:
-                counter = 0
-                previous_figure = None
-                continue
-            elif previous_figure != figure:
-                counter = 1
-                previous_figure = figure
-                continue
-            else:
-                counter += 1
-
-            if counter == n:
-                return previous_figure
-
-    def is_game_running(self) -> bool:
-        """Повертає екземпляр Game, в якому:
-         - в атрибуті status - True продовжується гра, False - гра закінчилась
-         - в атрибуті messages - список повідомлень про переможця або нічию.
-
-        гра закінчується коли:
-        - неможливі подальші ходи (всі клітинки зайняті і не сформовано виграшної комбінації)
-        - для якогось з гравців сформовано виграшну комбінацію
-
-        При закінченні гри додає в messages повідомлення про переможця або нічию і змінює статус гри на False.
-        """
-        # створити копію гри - працюємо з копією і потім, після змін, повертаємо її (так як це кортеж - неважливо,
-        # ми нічого не змінимо)
-
-        # перевірити що є вільні клітини
-        if not self.is_empty_cells(self.field):
-            self.add_message_to_game('Всі клітинки зайняті. Нічия!')
-            self.status = False
-
-            return self.status
-        # перевірити виграшні комбінації в рядках (відкидаємо рядки менші за довжину виграшної)
-        for row in range(self.settings.field['size_rows']):
-            cells = [
-                self.field[FieldCoordinates(row, column)]
-                for column in range(self.settings.field['size_columns'])
-                if self.settings.field['win_rows'] <= self.settings.field['size_columns']
-            ]
-            if winner := self.is_n_symbols_continuously(cells, self.settings.field['win_rows']):
-                self.add_message_to_game(f'Переміг {winner}!')
-                self.status = False
-
-                return self.status
-        # перевірити виграшні комбінації в колонках (відкидаємо колонки менші за довжину виграшної)
-        for column in range(self.settings.field['size_columns']):
-            cells = [
-                self.field[FieldCoordinates(row, column)]
-                for row in range(self.settings.field['size_rows'])
-                if self.settings.field['win_rows'] <= self.settings.field['size_rows']
-            ]
-            if winner := self.is_n_symbols_continuously(cells, self.settings.field['win_columns']):
-                self.add_message_to_game(f'Переміг {winner}!')
-                self.status = False
-
-                return self.status
-        # перевірити виграшні комбінації в правих діагоналях (перша половина)
-        for row in range(
-                0,
-                self.settings.field['size_rows']
-                - (self.settings.field['win_diagonals'] - 1),
-        ):
-            cells = []
-            c = 0
-            for r in range(row, self.settings.field['size_rows']):
-                cells.append(self.field[FieldCoordinates(r, c)])
-                c += 1
-            if winner := self.is_n_symbols_continuously(cells, self.settings.field['win_columns']):
-                self.add_message_to_game(f'Переміг {winner}!')
-                self.status = False
-
-                return self.status
-        # 'друга частина' правих діагоналей
-        for column in range(
-                1,
-                self.settings.field['size_columns']
-                - (self.settings.field['win_diagonals'] - 1),
-        ):
-            cells = []
-            r = 0
-            for c in range(column, self.settings.field['size_columns']):
-                cells.append(self.field[FieldCoordinates(r, c)])
-                r += 1
-            if winner := self.is_n_symbols_continuously(cells, self.settings.field['win_columns']):
-                self.add_message_to_game(f'Переміг {winner}!')
-                self.status = False
-
-                return self.status
-
-        # перевірити виграшні комбінації в лівих діагоналях (перша половина)
-        for column in range(
-                self.settings.field['win_diagonals'] - 1,
-                self.settings.field['size_columns']
-        ):
-            cells = []
-            r = 0
-            for c in range(column, -1, -1):
-                cells.append(self.field[FieldCoordinates(r, c)])
-                r += 1
-            if winner := self.is_n_symbols_continuously(cells, self.settings.field['win_columns']):
-                self.add_message_to_game(f'Переміг {winner}!')
-                self.status = False
-
-                return self.status
-
-        # 'друга частина' лівих діагоналей
-        for row in range(
-                1,
-                self.settings.field['size_rows']
-                - (self.settings.field['win_diagonals'] - 1)
-        ):
-            cells = []
-            c = self.settings.field['size_columns'] - 1
-            for r in range(row, self.settings.field['size_rows']):
-                cells.append(self.field[FieldCoordinates(r, c)])
-                c -= 1
-            if winner := self.is_n_symbols_continuously(cells, self.settings.field['win_columns']):
-                self.add_message_to_game(f'Переміг {winner}!')
-                self.status = False
-
-                return self.status
-
-        return self.status
+    async def run_game(self):
+        async with asyncio.TaskGroup() as tasks:
+            tasks.create_task(self.is_game_running())
+            tasks.create_task(self.blink_active_cell_screen())
+            tasks.create_task(self.redraw_screen())
+            tasks.create_task(self.get_input())
 
     def input_next_position(self) -> FieldCoordinates | str:
         """очікує від гравця введення позиції на полі гри
@@ -201,10 +74,10 @@ class Game:
         """
         player_name = self.settings.players[self.players[0]]['name']
         print(
-            f"очікую вводу позиції від гравця {player_name}."
-            f" Введіть рядок (0 ... {self.settings.field['size_rows'] - 1}) "
-            f"та стовпець (0 ... {self.settings.field['size_columns'] - 1}) через пробіл",
-            end=": ",
+            f'очікую вводу позиції від гравця {player_name}.'
+            f' Введіть рядок (0 ... {self.settings.field['size_rows'] - 1}) '
+            f'та стовпець (0 ... {self.settings.field['size_columns'] - 1}) через пробіл',
+            end=': '
         )
         input_str = input()
         try:
@@ -277,6 +150,78 @@ class Game:
         """Додати повідомлення до гри"""
         self.messages.append(Message(message, False))
 
-    def close_blink(self):
-        if self._blink:
-            self._blink.close()
+    def __enter__(self):
+        pass
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        finish_message = f'  Гра закінчилась! Переможець: {self.players[0]}.  Для виходу натисніть ESC.  '
+        while not stdscr.getch() == 27:
+            stdscr.clear()
+            max_row, max_col = stdscr.getmaxyx()
+            stdscr.addstr(max_row // 2, (max_col - len(finish_message)) // 2, finish_message)
+            self.show_for_terminal()
+            stdscr.refresh()
+            time.sleep(0.1)
+
+        curses.nocbreak()
+        stdscr.keypad(False)
+        curses.echo()
+        curses.endwin()
+
+    async def redraw_screen(self):
+        while True:
+            if not self.field.status:
+                await asyncio.sleep(0.2)
+                break
+            # виводимо гру на екран
+            stdscr.clear()
+            self.show_for_terminal()
+            # оцінюємо розміри екрану терміналу
+            max_row, max_col = stdscr.getmaxyx()
+            # обираємо найменші розміри для відображення - game.settings["screen"]["size_rows"]
+            # і game.settings["screen"]["size_columns"] в порівнянні з розмірами вікна терміналу
+            max_row = min(max_row, self.settings.screen['size_rows'])
+            max_col = min(max_col, self.settings.screen['size_columns'])
+            # виводимо гру на екран
+            for row in range(max_row):
+                for col in range(max_col):
+                    symbol = self.screen.get((row, col), ' ')
+                    stdscr.addstr(row, col, symbol)
+            stdscr.refresh()
+            await asyncio.sleep(0.01)
+
+        await asyncio.sleep(1)
+
+    async def get_input(self):
+        while self.field.status:
+
+            try:
+                key = stdscr.getch()
+            except curses.error:
+                continue
+
+            if key == curses.KEY_ENTER or key == 10 or key == 13:
+                #  встановити поточного гравця на позицію (тут же змінюється черга і виводяться відповідні повідомлення)
+                current_game = self.add_player_to_field_position(self.active_cell)
+                # змінити активну клітинку (стартова позиція)
+                current_game.set_active_cell()
+                continue
+            elif key in directions:
+                # переміщення активного осередку
+                direction = directions[key]
+                self.set_active_cell(
+                    position=FieldCoordinates(
+                        self.active_cell.row + direction[0],
+                        self.active_cell.column + direction[1]
+                    )
+                )
+                continue
+            elif key == -1:
+                pass
+            else:
+                # невірний введення
+                self.add_message_to_game(
+                    'Допустимі клавіші: ↑, ↓, ←, → (переміщення активного осередку), Enter (обрати осередок).'
+                )
+
+            await asyncio.sleep(0.01)

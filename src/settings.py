@@ -90,7 +90,7 @@ class Settings:
         self.players["max_row_symbols"] = max_row_player_symbols
         self.players["max_col_symbols"] = max_col_player_symbols
 
-    def create_field(self):
+    def create_field(self, messages):
         """Створює нове поле з чистими клітинами (None)."""
 
         size_rows = self.field['size_rows']
@@ -101,7 +101,7 @@ class Settings:
             for column in range(size_columns)
         }
 
-        return Field(coordinates)
+        return Field(coordinates, settings=self, messages=messages)
 
     def create_players(self):
         players = deque(key for key, value in self.players.items() if isinstance(value, dict))
@@ -110,14 +110,14 @@ class Settings:
         return Players(players)
 
     def create_game(self, active_cell):
-        game_field = self.create_field()
+        messages = Messages([Message('Hello!', False)], maxlen=self.messages['max_count'])
+        game_field = self.create_field(messages=messages)
         players = self.create_players()
         game = Game(
             field=game_field,
             players=players,
             settings=self,
-            messages=Messages([Message('Hello!', False)], maxlen=self.messages['max_count']),
-            status=True,
+            messages=messages,
             active_cell=None
         )
         if active_cell:

@@ -15,7 +15,7 @@ class Screen(ChainMap):
         self.player_scr = dict()
         self.field_scr = dict()
         self.messages_scr = dict()
-        super().__init__({}, self.player_scr, self.field_scr, self.messages_scr)
+        super().__init__(self.active_cell_scr, self.player_scr, self.field_scr, self.messages_scr)
 
         self.settings = settings
         self._active_cell_scr = dict()
@@ -267,8 +267,7 @@ class Screen(ChainMap):
         self._active_cell_scr = active_cell_screen
 
     async def blink_active_cell_screen(self):
-        while True:
-            self.maps[0] = self._active_cell_scr
-            await asyncio.sleep(0.05)
-            self.maps[0].clear()
-            await asyncio.sleep(0.05)
+        self.maps[0] = self._active_cell_scr
+        await asyncio.sleep(0.05)
+        self.maps[0].clear()
+        await asyncio.sleep(0.05)
