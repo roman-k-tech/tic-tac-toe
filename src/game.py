@@ -151,7 +151,7 @@ class Game:
         self.messages.append(Message(message, False))
 
     def __enter__(self):
-        pass
+        return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         finish_message = f'  Гра закінчилась! Переможець: {self.players[0]}.  Для виходу натисніть ESC.  '
